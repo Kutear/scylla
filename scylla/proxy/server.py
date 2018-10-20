@@ -1,17 +1,10 @@
 import random
-import sys
-import traceback
+import socket
+import threading
 from multiprocessing import Process
 
-from tornado import httpclient, web, ioloop
-from tornado.httpclient import HTTPResponse
-
-from scylla.config import get_config
 from scylla.database import ProxyIP
 from scylla.loggings import logger
-
-# Using CurlAsyncHTTPClient because its proxy support
-httpclient.AsyncHTTPClient.configure("tornado.curl_httpclient.CurlAsyncHTTPClient")
 
 
 def get_proxy(https=False) -> ProxyIP:
@@ -26,95 +19,48 @@ def get_proxy(https=False) -> ProxyIP:
     return proxy
 
 
-# TODO: handle https requests
-class ForwardingRequestHandler(web.RequestHandler):
-    """
-    A very rough ForwardingRequestHandler, only supports HTTP requests.
-    """
-
-    def data_received(self, chunk):
-        pass
-
-    def get_proxy_and_forward(self):
-        https = False
-
-        # At present, this proxy does not support https
-        if self.request.uri.startswith('https'):
-            https = True
-
-        disable_forward_proxy = get_config('disable_forward_proxy', default=False)
-
-        if disable_forward_proxy:
-            self.forward()
-        else:
-            proxy = get_proxy(https=https)
-            self.forward(host=proxy.ip, port=proxy.port)
-
-    @web.asynchronous
-    def get(self, *args, **kwargs):
-        self.get_proxy_and_forward()
-
-    @web.asynchronous
-    def post(self, *args, **kwargs):
-        self.get_proxy_and_forward()
-
-    def handle_response(self, response: HTTPResponse):
-
-        if response.body:
-            self.write(response.body)
-            self.finish()
-        elif response.error:
-            logger.debug('The forward proxy has an error: {}'.format(response.error))
-            self.finish()
-        else:
-            self.finish()
-
-    def forward(self, host=None, port=None):
-        try:
-            url = self.request.uri
-
-            body = self.request.body
-
-            if not body:
-                body = None
-
-            httpclient.AsyncHTTPClient().fetch(
-                httpclient.HTTPRequest(
-                    url=url,
-                    method=self.request.method,
-                    body=body,
-                    headers=self.request.headers,
-                    follow_redirects=False,
-                    validate_cert=False,
-                    proxy_host=host,
-                    proxy_port=port),
-                self.handle_response)
-
-        except httpclient.HTTPError as e:
-            logger.debug("tornado signalled HTTPError {}".format(e))
-            self.set_status(500)
-            self.finish()
-        except:
-            self.set_status(500)
-            self.write("Internal server error:\n" +
-                       ''.join(traceback.format_exception(*sys.exc_info())))
-            self.finish()
-
-
-def make_app():
-    return web.Application([
-        (r'.*', ForwardingRequestHandler),
-    ])
-
-
-def start_forward_proxy_server():
-    app = make_app()
-    port = int(get_config('proxy_port', default='8081'))
-    app.listen(port)
-    logger.info('Start forward proxy server on port {}'.format(port))
-    ioloop.IOLoop.current().start()
-
-
 def start_forward_proxy_server_non_blocking():
     p = Process(target=start_forward_proxy_server, daemon=True)
     p.start()
+
+
+def send(sender, recver):
+    while 1:
+        try:
+            data = sender.recv(2048)
+        except:
+            break
+        try:
+            recver.sendall(data)
+        except:
+            break
+    sender.close()
+    recver.close()
+
+
+def proxy(client):
+    retry_time = 1
+    while retry_time < 10:
+        logger.info('start request time: {}'.format(retry_time))
+        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        remote_proxy = get_proxy()
+        logger.info('use proxy {}:{}'.format(remote_proxy.ip, remote_proxy.port))
+        if not server.connect_ex((remote_proxy.ip, remote_proxy.port)):
+            logger.info('connect success')
+            threading.Thread(target=send, args=(client, server)).start()
+            threading.Thread(target=send, args=(server, client)).start()
+            break
+        else:
+            retry_time += 1
+
+
+def start_forward_proxy_server():
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind(("localhost", 1999))
+    server.listen(50)
+    logger.debug('start listener at{}:{}'.format('localhost', 1999))
+    while True:
+        conn, addr = server.accept()
+        logger.debug('get connect from {}'.format(addr))
+        threading.Thread(target=proxy, args=(conn,)).start()
