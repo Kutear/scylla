@@ -60,7 +60,7 @@ export default class ProxyIPList extends React.Component<Props, AppState> {
                         <th>Anonymous</th>
                         <th>Protocol</th>
                         <th>Latency</th>
-                        <th>Updated at</th>
+
                     </tr>
                     </thead>
                     <tbody>
@@ -71,7 +71,7 @@ export default class ProxyIPList extends React.Component<Props, AppState> {
                             <td>{r.is_anonymous ? 'Yes' : 'No'}</td>
                             <td>{r.is_https ? 'HTTPS' : 'HTTP'}</td>
                             <td>{r.latency.toFixed(0)} ms</td>
-                            <td>{moment.unix(r.updated_at).format('YYYYMMDD HH:mm:ss')}</td>
+                  
                         </tr>
                     )}
                     </tbody>
