@@ -57,12 +57,12 @@ def proxy(client):
 def start_forward_proxy_server():
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    if not server.bind(("localhost", 8081)):
+    if not server.bind(("0.0.0.0", 8081)):
         server.listen(50)
-        logger.info('start listener at {}:{}'.format('localhost', 8081))
+        logger.info('start listener at {}:{}'.format('0.0.0.0', 8081))
         while True:
             conn, addr = server.accept()
             logger.info('get connect from {}'.format(addr))
             threading.Thread(target=proxy, args=(conn,)).start()
     else:
-        logger.error("can listener {}:{}".format('localhost', 8081))
+        logger.error("can listener {}:{}".format('0.0.0.0', 8081))
