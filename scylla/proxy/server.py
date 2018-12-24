@@ -22,6 +22,7 @@ def get_proxy(https=False) -> ProxyIP:
 def start_forward_proxy_server_non_blocking():
    # p = Process(target=start_forward_proxy_server, daemon=True)
    # p.start()
+    pass
 
 
 def send(sender, recver, msg):
